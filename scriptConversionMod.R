@@ -12,10 +12,6 @@ sd02_similarityMatrix <- sd02_similarityMatrix[,-1]
 sd02_deconvoluted <- read.csv("sd02_deconvolutedidMSMS.csv", sep=";")
 
 
-# Camera 
-## msp file
-# 1_ every one that has one identifier has one spectrum, take average as rt, leave adductionname empty
-
 ## identify precursor mz
 precursor <- sd02_deconvoluted[,4]
 precursor <- as.character(precursor)
