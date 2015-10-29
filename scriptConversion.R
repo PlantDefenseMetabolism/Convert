@@ -1,7 +1,7 @@
 ## Data from Halle
-spectra_0_less <- read.csv("~/Documents/University/Master/HiWi/20158251022_spectra_0_less.msp", 
+spectra_0_less <- read.csv("20158251022_spectra_0_less.msp", 
                            comment.char="#")
-rawmatrix_0_less <- read.delim("~/Documents/University/Master/HiWi/20158251022_rawmatrix_0_less.txt")
+rawmatrix_0_less <- read.delim("20158251022_rawmatrix_0_less.txt")
 
 ## PNAS article
 ## sd01
@@ -64,7 +64,7 @@ for (i in 1:lenUniquePreMZ) {
     finalMSP[newstart:newend,] <- entry
 }
 
-setwd("Documents/University/Master/HiWi/")
+
 ## write finalMSP to .msp
 write.table(finalMSP, file = "idMSMStoMSP.msp", sep=" ", dec=".",
     row.names=FALSE, col.names=FALSE,quote=FALSE)
@@ -100,30 +100,39 @@ while (any(unlist(lapply(indL, length)) == 0)) {
 finalCluster <- matrix(nrow = length(mz), ncol = (5 + 183 + 2))
 colnames(finalCluster) <- c("Average Rt(min)", "Average mz", "Metabolite Name",
     "Adduct ion name", "Spectrum reference file name", as.character(1:183), 
-    "Quality RT", "minimum deviation m/z")
+    "dev RT", "minimum deviation m/z")
 finalCluster <- as.data.frame(finalCluster)
 
 for (i in 1:length(mz)) {
+    
+    ## preselection of m/z values
     mzXCMS <- sd01_outputXCMS[indL[[i]],"mz"]
     mzXCMS <- as.character(mzXCMS)
     mzXCMS <- as.numeric(mzXCMS)
     devMZ <- abs(mzXCMS - mz[i])
+    ## find smallest deviation
     indMinmz <- which.min(devMZ)
     XCMS <- sd01_outputXCMS[indL[[i]],][indMinmz,]
-
+    
     ## check if rt from deconvoluted is in range of rtmin to rtmax of sd01_outputXCMS
     ## and assign quality mark
     rtDeconvoluted <- sd02_deconvoluted[i,"rt"]
-    rtminXCMS <- XCMS[,"rtmin"]
-    rtminXCMS <- as.character(rtminXCMS)
-    rtminXCMS <- as.numeric(rtminXCMS)
+#     rtminXCMS <- XCMS[,"rtmin"]
+#     rtminXCMS <- as.character(rtminXCMS)
+#     rtminXCMS <- as.numeric(rtminXCMS)
+# 
+#     rtmaxXCMS <- XCMS[,"rtmax"]
+#     rtmaxXCMS <- as.character(rtmaxXCMS)
+#     rtmaxXCMS <- as.numeric(rtmaxXCMS)
 
-    rtmaxXCMS <- XCMS[,"rtmax"]
-    rtmaxXCMS <- as.character(rtmaxXCMS)
-    rtmaxXCMS <- as.numeric(rtmaxXCMS)
-
-    qualityRT <- rtminXCMS <= rtDeconvoluted & rtDeconvoluted <= rtmaxXCMS
-    if (qualityRT) {quality <- 1} else {quality <- 0}
+    rt_sd01_outputXCMS <- XCMS[, "rt"]
+    rt_sd01_outputXCMS <- as.character(rt_sd01_outputXCMS)
+    rt_sd01_outputXCMS <- as.numeric(rt_sd01_outputXCMS)
+    
+    devRT <- rtDeconvoluted - rt_sd01_outputXCMS
+    
+    ##qualityRT <- rtminXCMS <= rtDeconvoluted & rtDeconvoluted <= rtmaxXCMS
+    ##if (qualityRT) {quality <- 1} else {quality <- 0}
     
     indRT <- which(uniquePreMZ[i] == precursor)   
     meanFakeRT <- mean(sd02_deconvoluted[indRT,"rt"])
@@ -133,7 +142,8 @@ for (i in 1:length(mz)) {
     entry[, "Average Rt(min)"] <- meanFakeRT
     entry[, "Average mz"] <- mz[i]
     entry[, "Metabolite Name"] <- "Unknown"
-    entry[, "Adduct ion name"] <- XCMS[, "adduct"]
+    entry[, "Adduct ion name"] <- if(nchar(as.character(XCMS[, "adduct"]) == 0)) "Unknown" else XCMS[,"adduct"]
+    
     entry[, "Spectrum reference file name"] <- "Unknown"
     
     x <- XCMS[,which(colnames(XCMS) == "1"):which(colnames(XCMS) == "183")]
@@ -141,10 +151,57 @@ for (i in 1:length(mz)) {
     x <- as.vector(x)
     entry[, which(colnames(entry)=="1"):which(colnames(entry)=="183")] <- x
             
-    entry[, "Quality RT"] <- quality
+    entry[, "dev RT"] <- devRT
     entry[, "minimum deviation m/z"] <- min(devMZ)
     
     finalCluster[i, ] <- entry
 }
 
+## 
+plot(finalCluster[, "dev RT"], finalCluster[, "minimum deviation m/z"], 
+     xlab = "deviance in RT", ylab = "deviation in m/z")
+abline(h = 2)
+abline(h = 1.0, lty = 2)
 
+
+
+
+
+
+##
+# 
+# rtXCMS <- sd01_outputXCMS[indL[[1]], "rt"]
+# rtXCMS <- as.character(rtXCMS)
+# rtXCMS <- as.numeric(rtXCMS)
+# 
+# rtPre <- sd02_deconvoluted[1,"rt"]
+# minRTind <- which.min(abs(rtXCMS - rtPre))
+# 
+# ind <- which(sd01_outputXCMS[,"rt"] == rtXCMS[minRTind])
+# sd01_outputXCMS[ind,]
+# 
+# 
+# ## average rt(min), average mz; trio, lvs = replicates, take retention time from average rt from S2, intensities from S1xcmscamera
+# ## precursor mz is slightly different from xcmscamera: how to threshold
+# 
+# range(sd01_outputXCMS[,2], sd01_outputXCMS[,3])
+# 
+# 
+# precursor <- sd02_deconvoluted[,4]
+# precursor <- as.character(precursor)
+# splitPrecursor <- strsplit(precursor, split=" _ ")
+# splitPrecursor <- unlist(splitPrecursor)
+# 
+# lenSplitPrecursor <- length(splitPrecursor)
+# PrecursorMZ <- splitPrecursor[seq(2, lenSplitPrecursor, 2)]
+# lenPreMZ <- length(PrecursorMZ)
+# 
+# ## add PrecursorMZ to deconvoluted idMSMS
+# sd02_deconvoluted <- cbind(sd02_deconvoluted, PrecursorMZ)
+# 
+# ## change character to numeric
+# PrecursorMZ <- as.numeric(PrecursorMZ)
+# ## PrecursorMZ <- sort(PrecursorMZ) ## ??
+# uniquePreMZ <- unique(precursor)
+# lenUniquePreMZ <- length(uniquePreMZ)
+# uniquePreMZ_cut <- unique(PrecursorMZ)
