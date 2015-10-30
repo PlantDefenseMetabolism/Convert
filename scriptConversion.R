@@ -22,7 +22,7 @@ sd02_deconvoluted <- read.csv("sd02_deconvolutedidMSMS.csv", sep=";")
 ## identify precursor mz
 precursor <- sd02_deconvoluted[,4]
 precursor <- as.character(precursor)
-splitPrecursor <- strsplit(precursor, split=" _ ")
+splitPrecursor <- strsplit(precursor, split=" _ ") ## split precursors
 splitPrecursor <- unlist(splitPrecursor)
 
 lenSplitPrecursor <- length(splitPrecursor)
@@ -73,13 +73,8 @@ write.table(finalMSP, file = "idMSMStoMSP.msp", sep=" ", dec=".",
 
 ## 2) convert sd02_deconvoluted precursor ions and sd01_outputXCMS to a format
 ## as in ..._rawmatrix_0_less.txt by allocating precursor ions to canditate
-## m/z values based on minimal distance of m/z
-
-mz <- uniquePreMZ_cut
-
-
-## find from these the preselection the entry with the smallest m/z deviation
-## to the precursor mz
+## m/z values based on minimal distance of m/z and deviance of rt based on 
+## an objective function
 
 ## cf. group.nearest: Group peaks together across samples by creating a master 
 ## peak list and assigning corresponding peaks from all samples. 
@@ -93,18 +88,24 @@ mz <- uniquePreMZ_cut
 ## rtCheck Maximum tolerated distance for RT
 ## kNN Number of nearest Neighbours to check
 
+## isolated mz values from pcgroup_precursorMZ column in sd02_deconvoluted
+mz <- uniquePreMZ_cut
+
 ## create finalCluster, which is the data.frame to store data
 finalCluster <- matrix(nrow = length(mz), ncol = (5 + 183 + 4))
 colnames(finalCluster) <- c("Average Rt(min)", "Average mz", "Metabolite Name",
     "Adduct ion name", "Spectrum reference file name", as.character(1:183), 
-    "check RT", "dev RT", "check mz", "minimum deviation m/z")
+    "check RT", "dev RT", "check mz", "deviation m/z")
 finalCluster <- as.data.frame(finalCluster)
 
 ## PARAMETERS
-kNN <- 10 ## based on dev from m/z
-mzCheck <- 1 ## maximum tolerated distance for mz
+## k-nearest neighbours based on dev from m/z (i.e. the kNN entries with the 
+## smallest deviation)
+kNN <- 10 
+mzCheck <- 1 ## maximum tolerated distance for mz (strong criterion here)
 rtCheck <- 30 ## maximum tolerated distance for rt
 ## Multiplicator for mz value before calculating the (euclidean) distance between two peaks
+## high value means that there is a strong weight on the dev m/z value
 mzVsRTbalance <- 10000 
 
 ## LOOP WHICH WRITES TO finalCluster
@@ -116,14 +117,20 @@ for (i in 1:length(mz)) {
     sd01mz <- as.numeric(sd01mz)
     devmzOld <- devmz <- abs(sd02mz - sd01mz)
     
+    ## use only kNN m/z dev
     sortDevMz <- sort(devmz)[1:kNN]
     
-    indSortDevMZOld <- indSortDevMZ <- match(sortDevMz, devmz)
+    ## get indices in 01_outputXCMS of the smallest deviances
+    indSortDevMZOld <- indSortDevMZ <- match(sortDevMz, devmz) 
+    ## truncate devmz such that it only includes kNN m/z deviances
     devmz <- devmz[indSortDevMZ]
     
     ## check if devmz is in tolerated distance
     if (any(devmz <= mzCheck)) {
-        indSortDevMZ <- indSortDevMZ[devmz <= mzCheck]; devmz <- devmz[devmz <= mzCheck]
+        ## truncate such that indSortDevMZ includes only indices and 
+        ## devmz only m/z within the tolerance value
+        indSortDevMZ <- indSortDevMZ[devmz <= mzCheck]
+        devmz <- devmz[devmz <= mzCheck]
         ToleranceCheckMZ <- TRUE
     } else {
         print (c(i,"Deviation of m/z is greater than tolerance value. I won't truncate the kNN."))
@@ -131,10 +138,12 @@ for (i in 1:length(mz)) {
         ToleranceCheckMZ <- FALSE
     }
     
+    ## calculate fake rt from sd02_deconvoluted (from fragment rt values)
     ind <- which(uniquePreMZ[i] == precursor)    
-    #####################
     sd02rt <- sd02_deconvoluted[ind, "rt"]
-    sd02rt <- mean(sd02rt) ## calculate mean of rts
+    sd02rt <- mean(sd02rt) 
+    
+    ## determine rt values from sd01_outputXCMS
     sd01rt <- sd01_outputXCMS[indSortDevMZ, "rt"]
     sd01rt <- as.character(sd01rt)
     sd01rt <- as.numeric(sd01rt)
@@ -142,20 +151,23 @@ for (i in 1:length(mz)) {
     devrt <- abs(sd02rt - sd01rt)
     
     if (any(devrt <= rtCheck)) {
-        ## truncate devmz and devrt
-        devmz <- devmz[devrt <= rtCheck]; devrt <- devrt[devrt <= rtCheck]
+        ## truncate devmz and devrt that it is included in the tolerance value
+        devmz <- devmz[devrt <= rtCheck] 
+        devrt <- devrt[devrt <= rtCheck]
         ToleranceCheckRT <- TRUE
         objective <- mzVsRTbalance * devmz + devrt
     } else {
         print(c(i, "Deviation of rt is greater than tolerance value. I won't use rt as a criterion."))
         ToleranceCheckRT <- FALSE
-        objective <- devmz
+        objective <- devmz ## use only devmz
     }
     
     ## find smallest value for objective function 
     minInd <- which.min(objective) 
-    minInd <- which(devmz[minInd] == devmzOld) ## gets index in sd01_outputXCMS 
+    ## get index in sd01_outputXCMS 
+    minInd <- which(devmz[minInd] == devmzOld) 
     
+    ## get the entry of sd01_outputXCMS with the smallest value
     XCMS <- sd01_outputXCMS[minInd,]
     
     ## write new entry
@@ -176,9 +188,12 @@ for (i in 1:length(mz)) {
     entry[, "check RT"] <- ToleranceCheckRT
     entry[, "dev RT"] <- sd02rt - as.numeric(as.character(XCMS[,"rt"]))
     entry[, "check mz"] <- ToleranceCheckMZ
-    entry[, "minimum deviation m/z"] <- sd02mz - as.numeric(as.character(XCMS[,"mz"]))
+    entry[, "deviation m/z"] <- sd02mz - as.numeric(as.character(XCMS[,"mz"]))
     
     ## write to finalCluster
     finalCluster[i, ] <- entry
 }
 
+## write finalCluster 
+write.table(finalCluster, file = "finalCluster.csv", sep=";", dec=".",
+    row.names=FALSE, col.names=FALSE,quote=FALSE)
