@@ -196,4 +196,182 @@ for (i in 1:length(mz)) {
 
 ## write finalCluster 
 write.table(finalCluster, file = "finalCluster.csv", sep=";", dec=".",
-    row.names=FALSE, col.names=FALSE,quote=FALSE)
+    row.names=FALSE, col.names=TRUE,quote=FALSE)
+
+################################################################################
+## create table with same fragments 
+finalMSP
+msp <- finalMSP##[1:94,]
+IndPrecMZ <- which(msp[,1] == "PRECURSORMZ: ")
+precmz <- msp[IndPrecMZ,2]
+IndRT <- which(msp[,1] == "RETENTIONTIME: ")
+rt <- msp[IndRT,2]
+indNumPeaks <- which(msp[,1] == "Num Peaks: ")  ## begining 
+
+l <- list()
+
+indEnd <- as.numeric(msp[indNumPeaks, 2])
+inds <- indNumPeaks + 1 
+indEnd <- indEnd + inds - 1 
+
+for (i in 1:length(indEnd)) l[[i]] <- c(inds[i]:indEnd[i])
+IndFrag <- unlist(l)
+frag <- msp[IndFrag,1]
+frag <- as.numeric(frag)
+
+frag_s <- sort(frag)
+frag_order <- order(frag)
+## calculate distance to neighbours  
+dist <- list(NA)
+for (i in 1:length(frag_s)) {
+    if (i != length(frag_s)) {
+        dist[[i]] <- c(frag_s[i], frag_s[i+1] - frag_s[i])
+    } else dist[[i]] <- c(frag_s[i], Inf)
+}
+    
+distAdapt <- dist ## <- dist[1:30]
+##dist[[length(dist)]][2] <- Inf
+
+dist2Adapt <- dist2 <- lapply(dist, "[[", 2)
+indConv <- which(unlist(dist2) == 0)
+
+mapping <- list()
+for (i in 1:length(dist)) mapping[[i]] <- i
+
+for (i in 1:length(indConv))mapping[[indConv[i]]] <- indConv[i] + 1
+
+inds <- which(unlist(dist2) == 0)
+conv <- numeric(length(mapping)) ## conv is the vector which shows convoluted mz
+x <- 1
+for (i in 1:length(mapping)) {
+    if (mapping[i] != i & conv[i] == "0") {
+        conv[i] <- paste("M", x, sep="")
+        conv[i+1] <- paste("M", x, sep="")
+        j <- i
+        while (unlist(mapping)[j+1] != (j +1) ) {
+            conv[j + 1] <- paste("M", x, sep="")
+            conv[j + 2] <- paste("M", x, sep="")
+            j <- j +1 
+        }
+        i <- j
+        x <- x +1 
+    }
+}
+
+tol <- 0.01
+
+indGreater0 <- which(unlist(dist2Adapt) > 0) 
+minDist2AdaptGreater0 <- which.min(dist2Adapt[indGreater0])
+indGreater0Min <- indGreater0[minDist2AdaptGreater0]
+
+while (distAdapt[indGreater0Min][[1]][2] < tol) {
+    ## write all which have Mx value to Mx+1
+    if (conv[indGreater0Min + 1 ] == 0) {
+        str <- unlist(strsplit(unique(conv),split="M"))
+        str <- str[which(str != "")]
+        if (0 %in% str) str <- str[which(str != "0")]
+        str <- max(as.numeric(str)) + 1
+        str <- paste("M", str, sep="")
+        if (conv[indGreater0Min] == 0) {
+            conv[indGreater0Min] <- str
+            
+        } else {
+            conv[which(conv[indGreater0Min] == conv)] <- str
+        }
+        conv[indGreater0Min + 1] <- str   
+    } else {
+        if  (conv[indGreater0Min] == 0) {conv[indGreater0Min] <- conv[indGreater0Min + 1 ]}
+        else {
+            conv[which(conv[indGreater0Min] == conv)] <- conv[indGreater0Min + 1 ]}
+    }
+    ## calculate new mean for all instances with Mx+1
+    indAdapt <- which(conv[indGreater0Min + 1 ] == conv)
+    newMean <- mean(unlist(lapply(distAdapt[indAdapt], "[", 1)))
+    ## write new mean
+    for (i in indAdapt) distAdapt[[i]][1] <- newMean
+    ## write new distances
+    distAdaptOld <- distAdapt
+    for (i in 1:length(distAdapt)) {
+        if (i != length(distAdapt)) {
+            distAdapt[[i]] <- c(distAdaptOld[[i]][1], distAdaptOld[[i+1]][1] - distAdaptOld[[i]][1])
+        } else distAdapt[[i]] <- c(distAdaptOld[[i]][1], Inf)
+    }
+    dist2Adapt <- lapply(distAdapt, "[[", 2)
+    unlist(dist2Adapt)
+    
+    indGreater0 <- which(unlist(dist2Adapt) > 0) 
+    minDist2AdaptGreater0 <- which.min(dist2Adapt[indGreater0])
+    indGreater0Min <- indGreater0[minDist2AdaptGreater0]
+}
+
+## write for every conv which has "0" a new Mx 
+for (i in which(conv == "0")) {
+    str <- unlist(strsplit(unique(conv),split="M"))
+    str <- str[which(str != "")]
+    if (0 %in% str) str <- str[which(str != "0")]
+    str <- max(as.numeric(str)) + 1
+    str <- paste("M", str, sep="")
+    conv[i] <- str
+}
+    
+uniqueMZ <- unlist(lapply(distAdapt, "[", 1))
+uniqueMZ <- unique(uniqueMZ)
+
+mm <- matrix(data = 0, nrow = length(precmz), ncol = length(uniqueMZ))
+## convoluted MZ is column names
+colnames(mm) <- uniqueMZ
+rownames(mm) <- paste(precmz, rt, sep="/")
+
+
+
+fragMM <- unlist(l)
+## write to mm 
+for (i in 1:length(fragMM)) {
+    ## which frag is put first? second? ...
+    indFragMM <- fragMM[frag_order][i]
+    msp[indFragMM,]
+    ## get corresponding Precursor MZ
+    correspPrecMZ <- precmz[max(which(IndPrecMZ < indFragMM))]
+    ## get corresponding rt
+    correspPrecRT <- rt[max(which(IndPrecMZ < indFragMM))]
+    ## get unique row identifier
+    rowInd <- which(paste(correspPrecMZ, correspPrecRT, sep="/") == rownames(mm))
+    ## get col index 
+    colInd <- which(distAdapt[[i]][1] == colnames(mm))
+    ## write 
+    mm[rowInd,colInd] <- msp[indFragMM, 2]
+}
+
+## NDP, function to calculate normalised dot product
+## NDP = sum(Ws1i * Ws2i)^2 / ( sum(Ws1i^2) * sum(Ws2i^2) ) 
+## W = [peak intensity] ^ 0.5 [mass] ^ 2
+NDP <- function(mat, row1=1, row2=2, m = 0.5, n = 2) {
+    len <- dim(mat)[2]
+    mass <- colnames(mat)
+    mass <- as.numeric(mass)
+    WS1 <- numeric(len)
+    WS2 <- numeric(len)
+    S1 <- as.numeric(mat[row1,])
+    S2 <- as.numeric(mat[row2,])
+    for (i in 1:len) {
+        WS1[i] <- ( S1[i] ) ^ m * ( mass[i] ) ^ n
+        WS2[i] <- ( S2[i] ) ^ m * ( mass[i] ) ^ n
+    }
+    NDP <- ( sum(WS1 * WS2) ) ^ 2 / (sum(WS1 ^ 2 ) * sum(WS2 ^ 2))
+    return(NDP)
+}
+
+NDP(mm, row1=1, row2=2) 
+
+similarityMatrix <- matrix(0, nrow = length(precmz), ncol = length(precmz))
+colnames(similarityMatrix) <- rownames(similarityMatrix) <- paste(precmz, rt, sep="/")
+
+similarityMatrix <- similarityMatrix
+for (i in 1:dim(similarityMatrix)[1]) {
+    for (j in 1:dim(similarityMatrix)[1]) {
+        similarityMatrix[i,j] <- NDP(mm, row1=i, row2=j)
+    }
+}
+##data.frame # rownames unique identifier, colnames = binned m/z
+## entries 0 falls keine Ähnlichkeit, oder relative Intensität
+
