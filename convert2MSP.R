@@ -1,3 +1,23 @@
+## helper function to get unique precursor ions
+.cutUniquePreMZ <- function(precursor, splitPattern = splitPattern, splitInd = splitInd) {
+    ## split precursors according to split pattern
+    precursor <- as.character(precursor)
+    splitPrecursor <- strsplit(precursor, split = splitPattern)
+    ## extract precursor mz at position splitInd
+    splitPrecursor <- lapply(splitPrecursor,"[", splitInd)
+    PrecursorMZ <- unlist(splitPrecursor)
+    lenPreMZ <- length(PrecursorMZ)
+    
+    ## change character to numeric
+    PrecursorMZ <- as.numeric(PrecursorMZ)
+    uniquePreMZ <- unique(precursor)
+    lenUniquePreMZ <- length(uniquePreMZ)
+    uniquePreMZ_cut <- unique(PrecursorMZ)
+    
+    return(uniquePreMZ_cut)
+}
+
+
 ## function to convert mm into MSP format
 
 ## mm needs to be in the format: 
@@ -6,22 +26,16 @@
 ## concerning 4th column, split is the pattern which separates elements and precursor mz
 ## splitInd is the position of the precursor mz concerning separatation by split pattern
 
-convert2MSP <- function (mm, split = "_", splitInd = 1) {
+convert2MSP <- function (mm, splitPattern = "_", splitInd = 1) {
     precursor <- mm[,4]
     precursor <- as.character(precursor)
-    splitPrecursor <- strsplit(precursor, split=split) ## split precursors
-    splitPrecursor <- lapply(splitPrecursor,"[", splitInd)
-    PrecursorMZ <- unlist(splitPrecursor)
-    lenPreMZ <- length(PrecursorMZ)
+    
+    uniquePreMZ <- unique(precursor)
+    uniquePreMZ_cut <- .cutUniquePreMZ(precursor = precursor, split = splitPattern, splitInd = splitInd)
+    lenUniquePreMZ <- length(uniquePreMZ_cut)
     
     ## add PrecursorMZ to deconvoluted idMSMS
-    mm <- cbind(mm, PrecursorMZ)
-    
-    ## change character to numeric
-    PrecursorMZ <- as.numeric(PrecursorMZ)
-    uniquePreMZ <- unique(precursor)
-    lenUniquePreMZ <- length(uniquePreMZ)
-    uniquePreMZ_cut <- unique(PrecursorMZ)
+    ## mm <- cbind(mm, PrecursorMZ)
     
     ## create data frame for MSP file
     finalMSP <- matrix(data = NA, nrow = 7 * lenUniquePreMZ + dim(mm)[1], ncol = 2) ## 7 new entries + all fragment ion entries
