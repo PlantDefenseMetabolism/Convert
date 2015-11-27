@@ -70,178 +70,11 @@ write.table(finalCluster, file = "finalCluster.csv", sep=";", dec=".",
 ################################################################################
 ## 3) create table with same fragments (binning)
 msp <- finalMSP
-IndPrecMZ <- which(msp[,1] == "PRECURSORMZ: ")
-precmz <- msp[IndPrecMZ,2]
-IndRT <- which(msp[,1] == "RETENTIONTIME: ")
-rt <- msp[IndRT,2]
-indNumPeaks <- which(msp[,1] == "Num Peaks: ")  ## begining 
 
-l <- list()
+mm <- binning(msp, tol = 0.01)
 
-indEnd <- as.numeric(msp[indNumPeaks, 2])
-inds <- indNumPeaks + 1 
-indEnd <- indEnd + inds - 1 
-
-for (i in 1:length(indEnd)) l[[i]] <- c(inds[i]:indEnd[i])
-IndFrag <- unlist(l)
-frag <- msp[IndFrag,1]
-frag <- as.numeric(frag)
-
-frag_s <- sort(frag)
-frag_order <- order(frag)
-## calculate distance to neighbours  
-dist <- list(NA)
-for (i in 1:length(frag_s)) {
-    if (i != length(frag_s)) {
-        dist[[i]] <- c(frag_s[i], frag_s[i+1] - frag_s[i])
-    } else dist[[i]] <- c(frag_s[i], Inf)
-}
-    
-distAdapt <- dist
-
-dist2Adapt <- dist2 <- lapply(dist, "[[", 2)
-indConv <- which(unlist(dist2) == 0)
-
-mapping <- list()
-for (i in 1:length(dist)) mapping[[i]] <- i
-
-## map to the next element if it has same mz
-for (i in 1:length(indConv))mapping[[indConv[i]]] <- indConv[i] + 1
-
-inds <- which(unlist(dist2) == 0)
-conv <- numeric(length(mapping)) ## conv is the vector which shows convoluted mz
-x <- 1
-
-## for mz values which have distance of 0 create a identifier Mx, where x is an
-## increasing number to be able to trace back same mz
-for (i in 1:length(mapping)) {
-    if (mapping[i] != i & conv[i] == "0") {
-        conv[i] <- paste("M", x, sep="")
-        conv[i+1] <- paste("M", x, sep="")
-        j <- i
-        ## check when there is a sequence of mz which have distance 0 and 
-        ## allocate then the identical mx
-        while (unlist(mapping)[j+1] != (j +1) ) { 
-            conv[j + 1] <- paste("M", x, sep="")
-            conv[j + 2] <- paste("M", x, sep="")
-            j <- j +1 
-        }
-        i <- j
-        x <- x +1 
-    }
-}
-
-## tolerance value for binning
-tol <- 0.01
-
-## actual binning script starts here 
-indGreater0 <- which(unlist(dist2Adapt) > 0) ## get distances greater 0
-## find smallest distance which is greater than zero
-minDist2AdaptGreater0 <- which.min(dist2Adapt[indGreater0])
-indGreater0Min <- indGreater0[minDist2AdaptGreater0]
-
-while (distAdapt[indGreater0Min][[1]][2] < tol) {
-    ## write all which have Mx value to Mx+1
-    if (conv[indGreater0Min + 1 ] == 0) { ## then create new Mx
-        str <- unlist(strsplit(unique(conv),split="M"))
-        str <- str[which(str != "")]
-        if (0 %in% str) str <- str[which(str != "0")]
-        str <- max(as.numeric(str)) + 1
-        str <- paste("M", str, sep="")
-        if (conv[indGreater0Min] == 0) {
-            conv[indGreater0Min] <- str
-        } else {
-            conv[which(conv[indGreater0Min] == conv)] <- str
-        }
-        conv[indGreater0Min + 1] <- str   
-    } else { ## if conv[indGreater0min + 1] != 0, i.e. if it is Mx, then use "old" Mx
-        if (conv[indGreater0Min] == 0) {conv[indGreater0Min] <- conv[indGreater0Min + 1 ]}
-        else {
-            conv[which(conv[indGreater0Min] == conv)] <- conv[indGreater0Min + 1 ]}
-    }
-    ## calculate new mean for all instances with Mx+1
-    indAdapt <- which(conv[indGreater0Min + 1 ] == conv)
-    newMean <- mean(unlist(lapply(distAdapt[indAdapt], "[", 1)))
-    ## write new mean to all instances with Mx+1
-    for (i in indAdapt) distAdapt[[i]][1] <- newMean
-    ## calculate new distances and write new distances
-    distAdaptOld <- distAdapt
-    for (i in 1:length(distAdapt)) { ## calculate for all elements in the list (this can be 
-        ## changed, so that we only calculate distance for elements before and after Mx+1)
-        if (i != length(distAdapt)) {
-            distAdapt[[i]] <- c(distAdaptOld[[i]][1], distAdaptOld[[i+1]][1] - distAdaptOld[[i]][1])
-        } else distAdapt[[i]] <- c(distAdaptOld[[i]][1], Inf)
-    }
-    dist2Adapt <- lapply(distAdapt, "[[", 2)
-    unlist(dist2Adapt)
-    
-    indGreater0 <- which(unlist(dist2Adapt) > 0) 
-    minDist2AdaptGreater0 <- which.min(dist2Adapt[indGreater0])
-    indGreater0Min <- indGreater0[minDist2AdaptGreater0]
-}
-
-## actual binning script ends here
-
-## write for every conv which has "0" a new Mx 
-for (i in which(conv == "0")) {
-    str <- unlist(strsplit(unique(conv),split="M"))
-    str <- str[which(str != "")]
-    if (0 %in% str) str <- str[which(str != "0")] 
-    str <- max(as.numeric(str)) + 1 ## find highest x and create new one (+1)
-    str <- paste("M", str, sep="")
-    conv[i] <- str ## allocate Mx+1 to conv[i]
-}
-
-## find all unique bins, these will be the colnames of mm
-uniqueMZ <- unlist(lapply(distAdapt, "[", 1))
-uniqueMZ <- unique(uniqueMZ)
-
-mm <- matrix(data = 0, nrow = length(precmz), ncol = length(uniqueMZ))
-## convoluted MZ is column names
-colnames(mm) <- uniqueMZ
-rownames(mm) <- paste(precmz, rt, sep="/")
-
-
-
-fragMM <- unlist(l)
-## write to mm 
-for (i in 1:length(fragMM)) {
-    ## which frag is put first? second? ...
-    indFragMM <- fragMM[frag_order][i]
-    msp[indFragMM,]
-    ## get corresponding Precursor MZ
-    correspPrecMZ <- precmz[max(which(IndPrecMZ < indFragMM))]
-    ## get corresponding rt
-    correspPrecRT <- rt[max(which(IndPrecMZ < indFragMM))]
-    ## get unique row identifier
-    rowInd <- which(paste(correspPrecMZ, correspPrecRT, sep="/") == rownames(mm))
-    ## get col index 
-    colInd <- which(distAdapt[[i]][1] == colnames(mm))
-    ## write 
-    mm[rowInd,colInd] <- msp[indFragMM, 2]
-}
-
-## NDP, function to calculate normalised dot product
-## NDP = sum(Ws1i * Ws2i)^2 / ( sum(Ws1i^2) * sum(Ws2i^2) ) 
-## W = [peak intensity] ^ 0.5 [mass] ^ 2
-NDP <- function(mat, row1=1, row2=2, m = 0.5, n = 2) {
-    len <- dim(mat)[2]
-    mass <- colnames(mat)
-    mass <- as.numeric(mass)
-    ##WS1 <- numeric(len)
-    ##WS2 <- numeric(len)
-    S1 <- as.numeric(mat[row1,])
-    S2 <- as.numeric(mat[row2,])
-    ##for (i in 1:len) { ## formula according to Li et al 2015, PNAS
-    ##    WS1[i] <- ( S1[i] ) ^ m * ( mass[i] ) ^ n ## WS1 <- S1 ^ m * mass ^ n
-    ##    WS2[i] <- ( S2[i] ) ^ m * ( mass[i] ) ^ n ## WS2 <- S2 ^ m * mass ^ n
-    ##}
-    WS1 <- S1 ^ m * mass ^ n
-    WS2 <- S2 ^ m * mass ^ n
-    NDP <- ( sum(WS1 * WS2) ) ^ 2 / (sum(WS1 ^ 2 ) * sum(WS2 ^ 2))
-    return(NDP)
-}
-
+################################################################################
+## similarity Matrix 
 
 ## create similarity matrix which contains pairwise similarity measure NDP
 similarityMatrix <- matrix(0, nrow = length(precmz), ncol = length(precmz))
@@ -257,24 +90,25 @@ for (i in 1:n) {
     }
 }
 
+similarityMat <- similarityMatrix(mm)
+
 ## Clustering
 library(amap)
-hClustMSP <- hcluster(similarityMatrix, method = "spearman")
+hClustMSP <- hcluster(similarityMat, method = "spearman")
 plot(hClustMSP, labels = FALSE)
-colnames(similarityMatrix)[hClustMSP$order]
+colnames(similarityMat)[hClustMSP$order]
 # hClustMSP2 <- hcluster(similarityMatrix[1:5,1:5], method = "spearman")
 # plot(hClustMSP2, labels = FALSE)
 # plot(hClustMSP2)
 
 ## order newSim according to order of clustering
-
-colnames(similarityMatrix)
+colnames(similarityMat)
 hClustMSP$order
-newSim <- matrix(data=NA, nrow = dim(similarityMatrix)[1], ncol = dim(similarityMatrix)[1])
-newColnames <- colnames(similarityMatrix)[hClustMSP$order]
+newSim <- matrix(data=NA, nrow = dim(similarityMat)[1], ncol = dim(similarityMat)[1])
+newColnames <- colnames(similarityMat)[hClustMSP$order]
 colnames(newSim) <- rownames(newSim) <- newColnames
 
-for (i in 1:dim(similarityMatrix)[1]) {
+for (i in 1:dim(similarityMat)[1]) {
     newValues <- similarityMatrix[hClustMSP$order, hClustMSP$order[i]] 
     if (all(names(newSim[,i]) == names(newValues))) {
         newSim[,i] <- newValues
@@ -284,6 +118,9 @@ for (i in 1:dim(similarityMatrix)[1]) {
 write.csv(newSim, "orderedSimilarityMatrix.csv", sep=";", dec=".")
 ##
 ## circos
+
+######################### 
+## Neutral losses
 NL <- c("CH2", "CH4", "NH3", "H2O", "K+toNH4+", "Na+toH+", "C2H2", 
         "CO", "C2H4", "CH3N", "CH2O", "CH5N", "S", "H2S", 
         "K+toH+", "C2H2O", "C3H6", "CHNO", "CO2", "CH2O2", "C4H8",
