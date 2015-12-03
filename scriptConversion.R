@@ -19,6 +19,8 @@ sd02_deconvoluted <- read.csv("sd02_deconvolutedidMSMS.csv", sep=";")
 
 ## identify precursor mz
 finalMSP <- convert2MSP(sd02_deconvoluted, split = " _ ", splitInd = 2)
+##sd02_deconvoluted[,"rt"] 
+##sort(unlist(lapply(strsplit(as.character(sd02_deconvoluted[,4]), split = " _ "), "[", 2)))
 
 ## write finalMSP to .msp
 write.table(finalMSP, file = "idMSMStoMSP.msp", sep=" ", dec=".",
@@ -75,21 +77,6 @@ mm <- binning(msp, tol = 0.01)
 
 ################################################################################
 ## similarity Matrix 
-
-## create similarity matrix which contains pairwise similarity measure NDP
-similarityMatrix <- matrix(0, nrow = length(precmz), ncol = length(precmz))
-colnames(similarityMatrix) <- rownames(similarityMatrix) <- paste(precmz, rt, sep="/")
-
-n <- dim(similarityMatrix)[1]
-## write to similarity matrix similarit measure
-for (i in 1:n) {
-    for (j in 1:n) {
-        if (i <= j) {
-            similarityMatrix[j,i] <- similarityMatrix[i,j] <- NDP(mm, row1=i, row2=j)
-        }
-    }
-}
-
 similarityMat <- similarityMatrix(mm)
 
 ## Clustering
@@ -109,7 +96,7 @@ newColnames <- colnames(similarityMat)[hClustMSP$order]
 colnames(newSim) <- rownames(newSim) <- newColnames
 
 for (i in 1:dim(similarityMat)[1]) {
-    newValues <- similarityMatrix[hClustMSP$order, hClustMSP$order[i]] 
+    newValues <- similarityMat[hClustMSP$order, hClustMSP$order[i]] 
     if (all(names(newSim[,i]) == names(newValues))) {
         newSim[,i] <- newValues
     } else {print("error");break}
@@ -140,20 +127,71 @@ mzNL <- c(14.0157, 16.0313, 17.0265, 18.0106, 20.9293, 21.9819, 26.0157,
         307.0838, 324.1057, 342.1162)
 nl <- matrix(mzNL, nrow=1, ncol = length(NL))
 colnames(nl) <- NL
+## not finished
+msp2FunctionalLossesMSP <- function(msp) {
+    precmz <- getPrecursorMZ(msp)
+    rt <- getRT(msp)
+    indices <- getBegEndIndMSP(msp)
+    indBegL <- indices[[1]]
+    indEndL <- indices[[2]]
+    ## create data frame for MSP file
+    finalMSP <- matrix(data = NA, nrow = dim(msp)[1], ncol = 2) 
+    finalMSP <- as.data.frame(finalMSP)
+    
+    ## create MSP from 
+    for (i in 1:length(precmz)) {
+        print(i)
+        indBeg <- indBegL[i]
+        indEnd <- indEndL[i]
+        
+        neutralLoss <- - (as.numeric(precmz[i]) - as.numeric(msp[indBeg:indEnd,1]))
+        
+        entry <- rbind(
+            c("NAME: ", "Unknown"),
+            c("RETENTIONTIME: ", rt[i]),
+            c("PRECURSORMZ: ", precmz[i]),
+            c("METABOLITENAME: ", "Unknown"),
+            c("ADDUCTIONNAME: ", "Unknown"),
+            c("Num Losses: ", length(indBeg:indEnd)),
+            matrix(c(neutralLoss, msp[indBeg:indEnd,2]), ncol = 2),
+            c(" ", " ")
+        )
+        entry <- as.matrix(entry)
+        ## determine first empty line
+        newstart <- which(is.na(finalMSP[,1]))[1]
+        ## determine last line to write to
+        newend <- newstart + dim(entry)[1] - 1
+        finalMSP[newstart:newend,] <- entry
+    }
+    
+    return(finalMSP)
+}
 
-x <- mm[1,]
-frag <- names(x)
-frag <- as.numeric(frag)
-precursor <- rownames(mm)[1]
-precursor <- strsplit(precursor, "/")[[1]]
-precursor <- as.numeric(precursor[1])
-precursorInd <- which.min(abs(frag-precursor))
-PRECURSOR <- x[precursorInd]
-PRECURSORiMZ <- as.numeric(names(PRECURSOR))
-PRECURSORiIntensity <- as.numeric(PRECURSOR)
-indsFrag <- which(as.numeric(x) != 0)
+nlMSP <- msp2FunctionalLossesMSP(finalMSP)
 
-FRAGj <- x[indsFrag[2]]
-FRAGjMZ <- as.numeric(names(FRAGj))
-FRAGjIntensity <- as.numeric(FRAGj)
-FRAGjMZ - PRECURSORiMZ
+## create table with same fragments (binning)
+mmNL <- binning(nlMSP, tol = 0.01, is = "Losses")
+
+## similarity Matrix
+similarityMat <- similarityMatrix(mmNL)
+
+## Clustering
+library(amap)
+hClustMSP <- hcluster(similarityMat, method = "spearman")
+plot(hClustMSP, labels = FALSE)
+colnames(similarityMat)[hClustMSP$order]
+
+## order newSim according to order of clustering
+colnames(similarityMat)
+hClustMSP$order
+newSim <- matrix(data=NA, nrow = dim(similarityMat)[1], ncol = dim(similarityMat)[1])
+newColnames <- colnames(similarityMat)[hClustMSP$order]
+colnames(newSim) <- rownames(newSim) <- newColnames
+
+for (i in 1:dim(similarityMat)[1]) {
+    newValues <- similarityMat[hClustMSP$order, hClustMSP$order[i]] 
+    if (all(names(newSim[,i]) == names(newValues))) {
+        newSim[,i] <- newValues
+    } else {print("error");break}
+}
+
